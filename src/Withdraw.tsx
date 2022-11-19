@@ -56,6 +56,8 @@ export default function Withdraw({
   const availableBalance =
     balances.get(token.withdrawals[selectedChainIndex].from_denom) || "";
 
+  console.log("availableBalance", token.withdrawals[selectedChainIndex].from_denom, balances);
+
   useEffect(() => {
     (async () => {
       while (!window.keplr || !window.getOfflineSignerOnlyAmino) {
@@ -82,6 +84,12 @@ export default function Withdraw({
       }
 
       await window.keplr.enable(targetChainId);
+      window.keplr.defaultOptions = {
+        sign: {
+            preferNoSetFee: true,
+            disableBalanceCheck: true,
+        },
+      } 
       const targetOfflineSigner =
         window.getOfflineSignerOnlyAmino(targetChainId);
       const targetFromAccounts = await targetOfflineSigner.getAccounts();

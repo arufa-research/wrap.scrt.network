@@ -1,3 +1,4 @@
+import { SigningCosmWasmClient } from "@cosmjs/cosmwasm-stargate";
 import { SigningStargateClient } from "@cosmjs/stargate";
 import LoadingButton from "@mui/lab/LoadingButton";
 import {
@@ -52,7 +53,7 @@ export default function Deposit({
   const [availableBalance, setAvailableBalance] = useState<string>("");
   const [loadingTx, setLoading] = useState<boolean>(false);
   const [sourceCosmJs, setSourceCosmJs] =
-    useState<SigningStargateClient | null>(null);
+    useState<SigningCosmWasmClient | SigningStargateClient | null>(null);
   const [selectedChainIndex, setSelectedChainIndex] = useState<number>(0);
   const [fetchBalanceInterval, setFetchBalanceInterval] = useState<any>(null);
   const inputRef = useRef<any>();
@@ -67,18 +68,38 @@ export default function Deposit({
       chains[token.deposits[selectedChainIndex].source_chain_name].lcd
     }/cosmos/bank/v1beta1/balances/${sourceAddress}`;
     try {
-      const {
-        balances,
-      }: {
-        balances: Array<{ denom: string; amount: string }>;
-      } = await (await fetch(url)).json();
+      console.log("token: ", (token.deposits[selectedChainIndex].from_denom));
+      if ((token.deposits[selectedChainIndex].from_denom).startsWith('juno1')) {
+        console.log("sourceCosmJs: ", sourceCosmJs);
+        if (!sourceCosmJs) {
+          return;
+        }
 
-      const balance =
-        balances.find(
-          (c) => c.denom === token.deposits[selectedChainIndex].from_denom
-        )?.amount || "0";
-
-      setAvailableBalance(balance);
+        const result = await (sourceCosmJs as SigningCosmWasmClient).queryContractSmart(
+          token.address,
+          {
+            query: {
+              balance: { address: sourceAddress },
+            }
+          }
+        );
+        console.log("result: ", result);
+        setAvailableBalance("0");
+      } else {
+        console.log("token: ", (token.deposits[selectedChainIndex].from_denom));
+        const {
+          balances,
+        }: {
+          balances: Array<{ denom: string; amount: string }>;
+        } = await (await fetch(url)).json();
+  
+        const balance =
+          balances.find(
+            (c) => c.denom === token.deposits[selectedChainIndex].from_denom
+          )?.amount || "0";
+  
+        setAvailableBalance(balance);
+      }
     } catch (e) {
       console.error(`Error while trying to query ${url}:`, e);
       setAvailableBalance("Error");
@@ -126,15 +147,35 @@ export default function Deposit({
       const { chain_id, rpc, bech32_prefix } =
         chains[token.deposits[selectedChainIndex].source_chain_name];
       await window.keplr.enable(chain_id);
+      window.keplr.defaultOptions = {
+        sign: {
+            preferNoSetFee: true,
+            disableBalanceCheck: true,
+        }
+      }
       const sourceOfflineSigner = window.getOfflineSignerOnlyAmino(chain_id);
       const depositFromAccounts = await sourceOfflineSigner.getAccounts();
       setSourceAddress(depositFromAccounts[0].address);
-      const cosmjs = await SigningStargateClient.connectWithSigner(
-        rpc,
-        sourceOfflineSigner,
-        { prefix: bech32_prefix, broadcastPollIntervalMs: 10_000 }
-      );
-      setSourceCosmJs(cosmjs);
+
+      console.log("sourceAddress: ", depositFromAccounts[0].address);
+
+      if ((token.deposits[selectedChainIndex].from_denom).startsWith('juno1')) {
+        console.log("juno wasm client: ", rpc);
+        const cosmjs = await SigningCosmWasmClient.connectWithSigner(
+          rpc,
+          sourceOfflineSigner,
+          { prefix: bech32_prefix, broadcastPollIntervalMs: 10_000 }
+        );
+        console.log("cosmjs: ", cosmjs);
+        setSourceCosmJs(cosmjs);
+      } else {
+        const cosmjs = await SigningStargateClient.connectWithSigner(
+          rpc,
+          sourceOfflineSigner,
+          { prefix: bech32_prefix, broadcastPollIntervalMs: 10_000 }
+        );
+        setSourceCosmJs(cosmjs);
+      }
     })();
   }, [selectedChainIndex]);
 
@@ -392,7 +433,7 @@ export default function Deposit({
                 )
               ) {
                 // Regular cosmos chain (not ethermint signing)
-                const txResponse = await sourceCosmJs.sendIbcTokens(
+                const txResponse = await (sourceCosmJs as SigningStargateClient).sendIbcTokens(
                   sourceAddress,
                   secretAddress,
                   {
